@@ -1,7 +1,11 @@
 # vstore-faiss
  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A vector store using OpenAI embeddings and FAISS.
-Will eventually implement AstraDB or ChromaDB
-
+A vector store library using OpenAI embeddings.
 Roll-my-own, no Langchain.
+
+## FAISS
+FAISS version, locally stored files.
+
+## AstraDB
+AstraDB requires free (at the moment) account and some setup required.
