@@ -1,9 +1,7 @@
 import os
 import datetime
-import openai
 import numpy as np
 import hashlib
-import tiktoken
 from collections import defaultdict
 
 from astrapy import DataAPIClient
@@ -11,6 +9,7 @@ from astrapy.constants import VectorMetric
 from astrapy.ids import UUID
 from astrapy.exceptions import InsertManyException
 
+from vstore_common import *
 from vstore_config import *
 
 # Initialize the client and get a "Database" object
@@ -39,14 +38,6 @@ def create_collection(database, namespace, name, dimension=5, metric=VectorMetri
         print(f"* Created collection: {collection.full_name}\n")
     return collection
 
-# Calculate the hash of a file's content
-def calculate_hash(file_path):
-    hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        buf = f.read()
-        hasher.update(buf)
-    return hasher.hexdigest()
-
 # Read files from a directory and return a list of tuples containing the file path, file modified date, and file hash.
 def read_files(directory):
     file_contents = []
@@ -65,45 +56,6 @@ def read_files(directory):
                         # file_contents.append((filepath, f.read(), file_hash))
                         file_contents.append((filepath, file_date, file_hash))
     return file_contents
-
-
-# Split text using a sliding window approach with whole words
-def sliding_window_wholewords(text, max_tokens=512, overlap_words=50, model="text-embedding-ada-002", stop_at_chunk_index=None):
-    enc = tiktoken.encoding_for_model(model)
-    words = text.split()
-    chunks = []
-    current_chunk = []
-    current_tokens = 0
-    for word in words:
-        word_tokens = len(enc.encode(word))
-        current_chunk.append(word)
-        current_tokens += word_tokens
-        if current_tokens > max_tokens:
-            chunks.append(' '.join(current_chunk))
-            current_chunk = current_chunk[-overlap_words:]
-            current_tokens = sum(len(enc.encode(word)) for word in current_chunk)
-            if stop_at_chunk_index is not None and len(chunks) > stop_at_chunk_index:
-                break
-    if current_chunk and (stop_at_chunk_index is None or len(chunks) <= stop_at_chunk_index):
-        chunks.append(' '.join(current_chunk))
-    return chunks
-
-# Count tokens using tiktoken
-def count_tokens(text, model="text-embedding-ada-002"):
-    enc = tiktoken.encoding_for_model(model)
-    return len(enc.encode(text))
-
-
-# Generate embeddings
-def generate_vector(texts, model="text-embedding-ada-002"):
-    if isinstance(texts, str):
-        texts = [texts]
-    elif not all(isinstance(text, str) and text for text in texts):
-        raise ValueError("All elements in 'texts' must be non-empty strings.")
-    response = openai.embeddings.create(model=model, input=texts)
-    vectors = [np.array(data.embedding, dtype=np.float32) for data in response.data]
-    return vectors
-
 
 # Return files_processed
 def process_files(directory, collection):
@@ -158,7 +110,7 @@ def embed_files(files_to_embed, collection):
             for chunk_index, chunk in enumerate(chunks):
                 print(f"\r* Processing file: {file_index+1} of {len(files_to_embed)}, Chunk Index: {chunk_index+1} of {len(chunks)}     ", end='', flush=True)
                 hash_chunk = hashlib.md5(chunk.encode()).hexdigest()
-                vector = generate_vector(chunk) if chunk != '' else EMBEDDING_EMPTY_FILE # for cases when can't have zero vectors e.g. for cosine similarity
+                vector = generate_vectors(chunk) if chunk != '' else EMBEDDING_EMPTY_FILE # for cases when can't have zero vectors e.g. for cosine similarity
                 documents.append({
                     "file_path": file_path,
                     "chunk_index": chunk_index,
@@ -209,8 +161,8 @@ def main():
             insert_documents(collection, documents)
 
     # Perform a similarity search
-    query_text = "not an empty book."
-    query_vector = generate_vector([query_text])[0]
+    query_text = "The quality of a man's time spent on earth."
+    query_vector = generate_vectors([query_text])[0]
     results = collection.find(
         sort={"$vector": query_vector},
         limit=5,

@@ -1,4 +1,3 @@
-import openai
 import os
 import json
 import hashlib
@@ -12,11 +11,13 @@ EMBEDDING_DIR = "emb" + hashlib.md5(DOCUMENT_DIR.encode()).hexdigest()
 
 # OpenAI
 APIKEY_OPENAI = os.getenv('APIKEY_OPENAI')
-openai.api_key = APIKEY_OPENAI
 EMBEDDING_ENGINE = "text-embedding-ada-002"
 EMBEDDING_DIMENSION = 1536
 EMBEDDING_EMPTY_FILE = [[1e-9] * EMBEDDING_DIMENSION]
+
+# Chunking Size
 MAX_TOKENS_PER_FILE = 1024
+OVERLAP_WORDS = 50
 
 # Datastax AstraDB
 ASTRA_DB_SCB = f"/Users/{os.getenv('USER')}/MyProjects/vstore-mylib/db/secure-connect-xxx.zip"

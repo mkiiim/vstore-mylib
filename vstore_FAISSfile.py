@@ -1,27 +1,17 @@
 import os
-import openai
+import datetime
 import numpy as np
 import faiss
 import pickle
-import hashlib
-import tiktoken
-from vstore_config import *
 from collections import defaultdict
 
-# Set your OpenAI API key
-openai.api_key = APIKEY_OPENAI
+from vstore_common import *
+from vstore_config import *
 
 # Directory to process
 directory_to_process = DOCUMENT_DIR
 
-# Calculate the hash of a file's content
-def calculate_hash(file_path):
-    hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        buf = f.read()
-        hasher.update(buf)
-    return hasher.hexdigest()
-
+# Read files from a directory and return a list of tuples containing the file path, file content, and file hash.
 def read_files(directory):
     file_contents = []
     for root, dirs, files in os.walk(directory):
@@ -38,60 +28,6 @@ def read_files(directory):
                         file_contents.append((filepath, f.read(), file_hash))
     return file_contents
 
-# Split text - OLD, not used
-def split_text(text, max_tokens=2048):
-    tokens = text.split()
-    return [' '.join(tokens[i:i + max_tokens]) for i in range(0, len(tokens), max_tokens)]
-
-# Split text using a sliding window approach - OLD, not used
-def sliding_window(text, max_tokens=2048, overlap=200, model="text-embedding-ada-002"):
-    enc = tiktoken.encoding_for_model(model)
-    tokens = enc.encode(text)
-    chunks = []
-    start = 0
-    while start < len(tokens):
-        end = start + max_tokens
-        chunk_tokens = tokens[start:end]
-        chunks.append(enc.decode(chunk_tokens))
-        start += max_tokens - overlap
-    return chunks
-
-# Split text using a sliding window approach with whole words
-def sliding_window_wholewords(text, max_tokens=2048, overlap_words=150, model="text-embedding-ada-002", stop_at_chunk_index=None):
-    enc = tiktoken.encoding_for_model(model)
-    words = text.split()
-    chunks = []
-    current_chunk = []
-    current_tokens = 0
-    for word in words:
-        word_tokens = len(enc.encode(word))
-        current_chunk.append(word)
-        current_tokens += word_tokens
-        if current_tokens > max_tokens:
-            chunks.append(' '.join(current_chunk))
-            current_chunk = current_chunk[-overlap_words:]
-            current_tokens = sum(len(enc.encode(word)) for word in current_chunk)
-            if stop_at_chunk_index is not None and len(chunks) > stop_at_chunk_index:
-                break
-    if current_chunk and (stop_at_chunk_index is None or len(chunks) <= stop_at_chunk_index):
-        chunks.append(' '.join(current_chunk))
-    return chunks
-
-# Count tokens using tiktoken
-def count_tokens(text, model="text-embedding-ada-002"):
-    enc = tiktoken.encoding_for_model(model)
-    return len(enc.encode(text))
-
-# Generate vectors 
-def generate_vectors(texts, model="text-embedding-ada-002"):
-    if isinstance(texts, str):
-        texts = [texts]
-    elif not all(isinstance(text, str) and text for text in texts):
-        raise ValueError("All elements in 'texts' must be non-empty strings.")
-    response = openai.embeddings.create(model=model, input=texts)
-    vectors = [np.array(data.embedding, dtype=np.float32) for data in response.data]
-    return vectors
-
 # Create a new FAISS index
 def create_faiss_index(dim):
     return faiss.IndexFlatL2(dim)
@@ -103,10 +39,44 @@ def write_file_faiss_index_and_metadata(faiss_index, metadata, index_file=FAISS_
     os.makedirs(os.path.dirname(index_file), exist_ok=True)
     # Ensure the directory for the metadata file exists
     os.makedirs(os.path.dirname(metadata_file), exist_ok=True)
-
+        
+    # Write the FAISS index and metadata to disk
     faiss.write_index(faiss_index, index_file)
     with open(metadata_file, 'wb') as f:
         pickle.dump(metadata, f)
+
+    # Records in the metadata and index
+    metadata_records = len(metadata)
+    index_records = faiss_index.ntotal
+    # if they are not equal, raise an error
+    if metadata_records != index_records:
+        raise ValueError(f"Metadata records ({metadata_records}) and index records ({index_records}) do not match.")
+
+    # Info to write to an info file "faiss_info.txt"
+    new_content = (
+        f"Date: {datetime.datetime.now()}\n"
+        f"Embedded folder: {directory_to_process}\n"
+        f"FAISS Index File: {index_file}\n"
+        f"Metadata File: {metadata_file}\n"
+        f"Number of FAISS/Metadata Records: {metadata_records}\n"
+        f"Embedding Dimension: {EMBEDDING_DIMENSION}\n"
+        f"Max Tokens Per File: {MAX_TOKENS_PER_FILE}\n"
+        f"Overlap Words: {OVERLAP_WORDS}\n"
+    )
+    
+    # Check if the info file exists and read its content
+    faiss_info_filename = "faiss_info.txt"
+    info_path = os.path.join(EMBEDDING_DIR, faiss_info_filename)
+    if os.path.exists(info_path):
+        with open(info_path, "r") as f:
+            existing_content = f.read()
+    else:
+        existing_content = ""
+    
+    # Compare and write info file if different
+    if existing_content != new_content:
+        with open(info_path, "w") as f:
+            f.write(new_content)
 
 def write_db_faiss_index_and_metadata():
     pass
@@ -272,7 +242,7 @@ def main():
         print("No new files processed. Vector store not updated.")
     
     # Example query
-    query_text = "Man is silly and petulant most of the time."
+    query_text = "The quality of a man's time spent on earth."
     execute_query_and_print_results(faiss_index, metadata, query_text)
 
 if __name__ == "__main__":
